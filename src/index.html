@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8' />
+    <title>Mapbox Storytelling</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <link rel="icon" type="image/x-icon" href="https://raw.githubusercontent.com/mapbox/assembly/publisher-staging/src/svgs/mapbox.svg">
+    <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v2.11.0/mapbox-gl.js'></script>
+    <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v2.11.0/mapbox-gl.css' rel='stylesheet' />
+    <script src="https://unpkg.com/intersection-observer@0.12.0/intersection-observer.js"></script>
+    <script src="https://unpkg.com/scrollama"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.0/jquery.min.js"></script>
+    <script src='https://npmcdn.com/csv2geojson@latest/csv2geojson.js'></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.8.0/mapbox-gl.js"></script>
+    <style>
+        body {
+            margin:0;
+            padding:0;
+            font-family: sans-serif;
+        }
+        a, a:hover, a:visited {
+            color: #0071bc;
+        }
+        #map {
+            top:0;
+            height: 100vh;
+            width:100vw;
+            position: fixed;
+        }
+        #mapInset {
+            bottom:50px;
+            right:30px;
+            height: 180px;
+            width:250px;
+            max-width:100%;
+            position: fixed;
+            z-index: 1;
+            opacity: 1;
+            transition: opacity 0.5s ease-in-out;
+            pointer-events: none;
+        }
+        #mapInset .mapboxgl-ctrl-bottom-left{
+            display: none;
+        }
+        @media (max-width: 500px) {
+            #mapInset {
+                display: none;
+            }
+        }
+        #header {
+            margin: auto;
+            width: 100%;
+            position: relative;
+            z-index: 5;
+        }
+        #header h1, #header h2, #header p {
+            margin: 0;
+            padding: 2vh 2vw;
+            text-align: center;
+        }
+        #footer {
+            width: 100%;
+            min-height: 5vh;
+            padding-top: 2vh;
+            padding-bottom: 2vh;
+            text-align: center;
+            line-height: 25px;
+            font-size: 13px;
+            position: relative;
+            z-index: 5;
+        }
+        #features {
+            padding-top: 10vh;
+            padding-bottom: 10vh;
+        }
+        .hidden {
+            visibility: hidden;
+        }
+        .centered {
+            width: 50vw;
+            margin: 0 auto;
+        }
+        .lefty {
+            width: 33vw;
+            margin-left: 5vw;
+        }
+        .righty {
+            width: 33vw;
+            margin-left: 62vw;
+        }
+        .fully {
+            width: 100%;
+            margin: auto;
+        }
+        .light {
+            color: #444;
+            background-color: #fafafa;
+        }
+        .dark {
+            color: #fafafa;
+            background-color: #444;
+        }
+        .step {
+            padding-bottom: 50vh;
+            /* margin-bottom: 10vh; */
+            opacity: 0.25;
+        }
+        .step.active {
+            opacity: 0.9;
+        }
+
+        .step div {
+            padding:  25px 50px;
+            line-height: 25px;
+            font-size: 13px;
+        }
+
+        .step img {
+            width: 100%;
+        }
+
+        @media (max-width: 750px) {
+            .centered, .lefty, .righty, .fully {
+                width: 90vw;
+                margin: 0 auto;
+            }
+        }
+
+        /* Fix issue on mobile browser where scroll breaks  */
+        .mapboxgl-canvas-container.mapboxgl-touch-zoom-rotate.mapboxgl-touch-drag-pan,
+        .mapboxgl-canvas-container.mapboxgl-touch-zoom-rotate.mapboxgl-touch-drag-pan .mapboxgl-canvas {
+            touch-action: unset;
+        }
+                /* Legend styling */
+        #legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: sans-serif;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            z-index: 5;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .legend-color-box {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+        }
+
+        </style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="mapInset"></div>
+<div id="story"></div>
+<div id="info-container" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 20px; align-items: center; background: white; padding: 10px; border-radius: 5px; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);">
+    <div id="POP2023" style="padding: 10px; border-radius: 5px;">
+        <p>Hover over a block</p>
+    </div>
+    <div id="zoom-instructions" style="padding: 10px; border-radius: 5px;">
+        <p>Zoom in and click on a point!</p>
+    </div>
+</div>
+
+    
+    <div id="year-slider-container" style="position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; background: white; padding: 10px; border-radius: 5px; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);">
+        <input type="range" min="2010" max="2023" step="1" id="yearSlider" value="2010" style="margin-right: 10px;">
+        <label for="yearSlider">Select Year: <span id="yearLabel">2010</span></label>
+    </div>
+
+<div id="legend">
+        <div class="legend-title">
+        <strong>Population Density</strong>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color-box" style="background-color: #f2f0f7;"></div>
+        <span> ≤ 1,000 </span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color-box" style="background-color: #cbc9e2;"></div>
+        <span> ≤ 5,000 </span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color-box" style="background-color: #9e9ac8;"></div>
+        <span> ≤ 10,000 </span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color-box" style="background-color: #756bb1;"></div>
+        <span> ≤ 20,000 </span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color-box" style="background-color: #54278f;"></div>
+        <span> > 20,000 </span>
+    </div>
+</div>
+
+<script src="./config.js"></script>
+<script>
+var initLoad = true;
+var layerTypes = {
+    'fill': ['fill-opacity'],
+    'line': ['line-opacity'],
+    'circle': ['circle-opacity', 'circle-stroke-opacity'],
+    'symbol': ['icon-opacity', 'text-opacity'],
+    'raster': ['raster-opacity'],
+    'fill-extrusion': ['fill-extrusion-opacity'],
+    'heatmap': ['heatmap-opacity']
+}
+
+var alignments = {
+    'left': 'lefty',
+    'center': 'centered',
+    'right': 'righty',
+    'full': 'fully'
+}
+
+function getLayerPaintType(layer) {
+    var layerType = map.getLayer(layer).type;
+    return layerTypes[layerType];
+}
+
+function setLayerOpacity(layer) {
+    var paintProps = getLayerPaintType(layer.layer);
+    paintProps.forEach(function(prop) {
+        var options = {};
+        if (layer.duration) {
+            var transitionProp = prop + "-transition";
+            options = { "duration": layer.duration };
+            map.setPaintProperty(layer.layer, transitionProp, options);
+        }
+        map.setPaintProperty(layer.layer, prop, layer.opacity, options);
+    });
+}
+
+var story = document.getElementById('story');
+var features = document.createElement('div');
+features.setAttribute('id', 'features');
+
+var header = document.createElement('div');
+
+if (config.title) {
+    var titleText = document.createElement('h1');
+    titleText.innerText = config.title;
+    header.appendChild(titleText);
+}
+
+if (config.subtitle) {
+    var subtitleText = document.createElement('h2');
+    subtitleText.innerText = config.subtitle;
+    header.appendChild(subtitleText);
+}
+
+if (config.byline) {
+    var bylineText = document.createElement('p');
+    bylineText.innerText = config.byline;
+    header.appendChild(bylineText);
+}
+
+if (header.innerText.length > 0) {
+    header.classList.add(config.theme);
+    header.setAttribute('id', 'header');
+    story.appendChild(header);
+}
+
+config.chapters.forEach((record, idx) => {
+    var container = document.createElement('div');
+    var chapter = document.createElement('div');
+
+    if (record.title) {
+        var title = document.createElement('h3');
+        title.innerText = record.title;
+        chapter.appendChild(title);
+    }
+
+    if (record.image) {
+        var image = new Image();
+        image.src = record.image;
+        chapter.appendChild(image);
+    }
+
+    if (record.description) {
+        var story = document.createElement('p');
+        story.innerHTML = record.description;
+        chapter.appendChild(story);
+    }
+
+    container.setAttribute('id', record.id);
+    container.classList.add('step');
+    if (idx === 0) {
+        container.classList.add('active');
+    }
+
+    chapter.classList.add(config.theme);
+    container.appendChild(chapter);
+    container.classList.add(alignments[record.alignment] || 'centered');
+    if (record.hidden) {
+        container.classList.add('hidden');
+    }
+    features.appendChild(container);
+});
+
+story.appendChild(features);
+
+var footer = document.createElement('div');
+
+if (config.footer) {
+    var footerText = document.createElement('p');
+    footerText.innerHTML = config.footer;
+    footer.appendChild(footerText);
+}
+
+if (footer.innerText.length > 0) {
+    footer.classList.add(config.theme);
+    footer.setAttribute('id', 'footer');
+    story.appendChild(footer);
+}
+
+mapboxgl.accessToken = config.accessToken;
+
+const transformRequest = (url) => {
+    const hasQuery = url.indexOf("?") !== -1;
+    const suffix = hasQuery ? "&pluginName=scrollytellingV2" : "?pluginName=scrollytellingV2";
+    return {
+      url: url + suffix
+    }
+}
+
+var map = new mapboxgl.Map({
+    container: 'map',
+    style: config.style,
+    center: config.chapters[0].location.center,
+    zoom: config.chapters[0].location.zoom,
+    bearing: config.chapters[0].location.bearing,
+    pitch: config.chapters[0].location.pitch,
+    interactive: false,
+    transformRequest: transformRequest,
+    projection: config.projection
+});
+
+// Create a inset map if enabled in config.js
+if (config.inset) {
+ var insetMap = new mapboxgl.Map({
+    container: 'mapInset', // container id
+    style: 'mapbox://styles/mapbox/dark-v10', //hosted style id
+    center: config.chapters[0].location.center,
+    zoom: 3, // starting zoom
+    hash: false,
+    interactive: false,
+    attributionControl: false,
+    //Future: Once official mapbox-gl-js has globe view enabled,
+    //insetmap can be a globe with the following parameter.
+    //projection: 'globe'
+  });
+}
+
+if (config.showMarkers) {
+    var marker = new mapboxgl.Marker({ color: config.markerColor });
+    marker.setLngLat(config.chapters[0].location.center).addTo(map);
+}
+
+// instantiate the scrollama
+var scroller = scrollama();
+
+map.on("load", function() {
+    map.addSource('census-block', {
+        type: 'geojson',
+        data: 'data/Seattle 2020 Census Block Estimates.geojson'
+    })
+
+    const yearSlider = document.getElementById('yearSlider');
+    const yearLabel = document.getElementById('yearLabel');
+        
+    yearSlider.addEventListener('input', function (e) {
+        const selectedYear = parseInt(e.target.value); 
+        yearLabel.textContent = selectedYear; 
+
+        if (selectedYear === 2010) {
+            addYearLayers('2010');
+        } else if (selectedYear === 2015) {
+            addYearLayers('2015');
+        } else if (selectedYear === 2023) {
+            addYearLayers('2023');
+        }
+    });
+
+        // this is so that the slider can only slide to 2010, 2015 and 2023
+        yearSlider.addEventListener('input', function() {
+            const yearValue = parseInt(yearSlider.value);
+            if (yearValue === 2010 || yearValue === 2015 || yearValue === 2023) {
+                yearLabel.textContent = yearValue;
+            } else {
+                if (yearValue < 2013) {
+                    yearSlider.value = 2010;
+                    yearLabel.textContent = 2010;
+                } else if (yearValue >= 2013 && yearValue < 2018) {
+                    yearSlider.value = 2015;
+                    yearLabel.textContent = 2015;
+                } else {
+                    yearSlider.value = 2023;
+                    yearLabel.textContent = 2023;
+                }
+            }
+        });
+
+    function addYearLayers(year) {
+        const years = ['2010', '2015', '2023'];
+
+        years.forEach((y) => {
+            const visibility = y === year ? 'visible' : 'none';
+            map.setLayoutProperty(`${y}-points`, 'visibility', visibility);
+        });
+    }
+
+    map.addLayer({
+        'id': '2010-tract',
+        'type': 'fill',
+        'source': 'census-block',
+        'paint': {
+            'fill-color': [
+                'interpolate',
+                ['linear'],
+                ['get', 'POP2010'],
+                0, '#ede9f6', 
+                1000, '#bba6d3',
+                5000, '#8a75b1',
+                10000, '#5e4690',
+                20000, '#3a2169' 
+            ],
+            'fill-outline-color': 'lightgrey',
+        }
+    });
+
+    map.addLayer({
+        'id': '2015-tract',
+        'type': 'fill',
+        'source': 'census-block',
+        'paint': {
+            'fill-color': [
+                'interpolate',
+                ['linear'],
+                ['get', 'POP2015'],
+                0, '#ede9f6', 
+                1000, '#bba6d3',
+                5000, '#8a75b1',
+                10000, '#5e4690',
+                20000, '#3a2169' 
+            ],
+            'fill-outline-color': 'lightgrey',
+        }
+    });
+
+    map.addLayer({
+        'id': '2023-tract',
+        'type': 'fill',
+        'source': 'census-block',
+        'paint': {
+            'fill-color': [
+                'interpolate',
+                ['linear'],
+                ['get', 'POP2023'],
+                0, '#ede9f6', 
+                1000, '#bba6d3',
+                5000, '#8a75b1',
+                10000, '#5e4690',
+                20000, '#3a2169'
+            ],
+            'fill-outline-color': 'lightgrey',
+        }
+    });
+
+    map.on('mousemove', '2010-tract' ,(event) => {
+                const popdata = map.queryRenderedFeatures(event.point, {
+                layers: ['2010-tract']
+                 });
+
+    document.getElementById('POP2023').innerHTML = popdata.length && popdata[0].properties.NAME
+        ? `<p><strong>Block Name:</strong> ${popdata[0].properties.NAME}</p>`
+        : `<p>Hover over a block</p>`;
+    });
+
+    $(document).ready(function () {
+        $.ajax({
+            type: "GET",
+            url: 'https://docs.google.com/spreadsheets/d/1M1PMW0vlmeo_uiygtA4If_3Ei8zjb-ALou3y400ZzmE/gviz/tq?tqx=out:csv&sheet=Sheet1',
+            dataType: "text",
+            success: function (csvData) {
+                makeGeoJSON(csvData);
+            }
+        });
+    });
+
+    function makeGeoJSON(csvData) {
+    csv2geojson.csv2geojson(csvData, {
+        latfield: 'Latitude',
+        lonfield: 'Longitude',
+        delimiter: ','
+    }, function (err, data) {
+        if (err) {
+            console.error("Error converting CSV to GeoJSON:", err);
+            return;
+        }
+
+        // filter the data based on the year in the Report_Number
+        const data2010 = filterByYear(data, '2010');
+        const data2015 = filterByYear(data, '2015');
+        const data2023 = filterByYear(data, '2023');
+
+    // the same color interpolation for all years
+    const heatmapColor = [
+        'interpolate',
+        ['linear'],
+        ['heatmap-density'],
+        0, 'rgba(255,255,0,0)',      
+        0.2, 'rgba(255,255,0,0.2)',     
+        0.4, 'rgba(255,165,0,0.4)',    
+        0.6, 'rgba(255,140,0,0.6)',     
+        0.8, 'rgba(255,69,0,0.8)',      
+        0.9, 'rgba(255,0,0,0.9)',       
+        0.99, 'rgba(139,0,0,1)',        
+        1, 'red'                        
+    ];
+
+    map.addLayer({
+        id: '2010-heatmap',
+        type: 'heatmap',
+        source: {
+            type: 'geojson',
+            data: data2010
+        },
+        maxzoom: 14,
+        paint: {
+            'heatmap-intensity': 1,
+            'heatmap-color': heatmapColor, 
+            'heatmap-radius': 15
+        }
+    });
+
+    map.addLayer({
+        id: '2015-heatmap',
+        type: 'heatmap',
+        source: {
+            type: 'geojson',
+            data: data2015
+        },
+        maxzoom: 14,
+        paint: {
+            'heatmap-intensity': 1,
+            'heatmap-color': heatmapColor,
+            'heatmap-radius': 15
+        }
+    });
+
+    map.addLayer({
+        id: '2023-heatmap',
+        type: 'heatmap',
+        source: {
+            type: 'geojson',
+            data: data2023
+        },
+        maxzoom: 14,
+        paint: {
+            'heatmap-intensity': 1,
+            'heatmap-color': heatmapColor,
+            'heatmap-radius': 15
+        }
+    });
+
+        // add point layers
+        map.addLayer({
+            id: '2010-points',
+            type: 'circle',
+            source: {
+                type: 'geojson',
+                data: data2010
+            },
+            minzoom: 14,
+            layout: {
+                'visibility': 'visible'
+            },
+            paint: {
+                'circle-radius': 5,
+                'circle-color': 'red',
+                'circle-opacity': 0.8
+            }
+        });
+
+        map.addLayer({
+            id: '2015-points',
+            type: 'circle',
+            source: {
+                type: 'geojson',
+                data: data2015
+            },
+            minzoom: 14,
+            layout: {
+                'visibility': 'visible'
+            },
+            paint: {
+                'circle-radius': 5,
+                'circle-color': 'blue',
+                'circle-opacity': 0.8
+            }
+        });
+
+        map.addLayer({
+            id: '2023-points',
+            type: 'circle',
+            source: {
+                type: 'geojson',
+                data: data2023
+            },
+            minzoom: 14,
+            layout: {
+                'visibility': 'visible'
+            },
+            paint: {
+                'circle-radius': 5,
+                'circle-color': 'green',
+                'circle-opacity': 0.8
+            }
+        });
+    });
+}
+
+        ['2010-points', '2015-points', '2023-points'].forEach(layer => {
+            map.on('click', layer, (event) => {
+                const offenseName = event.features[0].properties.Offense;
+
+                new mapboxgl.Popup()
+                    .setLngLat(event.features[0].geometry.coordinates)
+                    .setHTML(`<strong>Offense:</strong> ${offenseName}`)
+                    .addTo(map);
+            });
+        });
+
+    function resetLayerVisibility() {
+        const years = ['2010', '2015', '2023'];
+        years.forEach(year => {
+            map.setLayoutProperty(`${year}-points`, 'visibility', 'none'); // Hide all layers
+        });
+    }
+
+
+        map.addControl(new mapboxgl.FullscreenControl());
+        map.addControl(new mapboxgl.NavigationControl());
+        
+// function to filter GeoJSON data by year
+function filterByYear(data, yearPrefix) {
+    const filteredFeatures = data.features.filter(feature => {
+        return feature.properties.Report_Number.startsWith(yearPrefix);
+    });
+    return {
+        type: 'FeatureCollection',
+        features: filteredFeatures
+    };
+}
+
+    // As the map moves, grab and update bounds in inset map.
+    if (config.inset) {
+    map.on('move', getInsetBounds);
+    }
+    // setup the instance, pass callback functions
+    scroller
+    .setup({
+        step: '.step',
+        offset: 0.5,
+        progress: true
+    })
+    .onStepEnter(async response => {
+        var current_chapter = config.chapters.findIndex(chap => chap.id === response.element.id);
+        var chapter = config.chapters[current_chapter];
+        
+        response.element.classList.add('active');
+        map[chapter.mapAnimation || 'flyTo'](chapter.location);
+
+        // Incase you do not want to have a dynamic inset map,
+        // rather want to keep it a static view but still change the
+        // bbox as main map move: comment out the below if section.
+        if (config.inset) {
+          if (chapter.location.zoom < 5) {
+            insetMap.flyTo({center: chapter.location.center, zoom: 0});
+          }
+          else {
+            insetMap.flyTo({center: chapter.location.center, zoom: 3});
+          }
+        }
+        if (config.showMarkers) {
+            marker.setLngLat(chapter.location.center);
+        }
+        if (chapter.onChapterEnter.length > 0) {
+            chapter.onChapterEnter.forEach(setLayerOpacity);
+        }
+        if (chapter.callback) {
+            window[chapter.callback]();
+        }
+        if (chapter.rotateAnimation) {
+            map.once('moveend', () => {
+                const rotateNumber = map.getBearing();
+                map.rotateTo(rotateNumber + 180, {
+                    duration: 30000, easing: function (t) {
+                        return t;
+                    }
+                });
+            });
+        }
+        if (config.auto) {
+             var next_chapter = (current_chapter + 1) % config.chapters.length;
+             map.once('moveend', () => {
+                 document.querySelectorAll('[data-scrollama-index="' + next_chapter.toString() + '"]')[0].scrollIntoView();
+             });
+        }
+    })
+    .onStepExit(response => {
+        var chapter = config.chapters.find(chap => chap.id === response.element.id);
+        response.element.classList.remove('active');
+        if (chapter.onChapterExit.length > 0) {
+            chapter.onChapterExit.forEach(setLayerOpacity);
+        }
+    });
+
+
+    if (config.auto) {
+        document.querySelectorAll('[data-scrollama-index="0"]')[0].scrollIntoView();
+    }
+});
+
+//Helper functions for insetmap
+function getInsetBounds() {
+            let bounds = map.getBounds();
+
+            let boundsJson = {
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [
+                                    bounds._sw.lng,
+                                    bounds._sw.lat
+                                ],
+                                [
+                                    bounds._ne.lng,
+                                    bounds._sw.lat
+                                ],
+                                [
+                                    bounds._ne.lng,
+                                    bounds._ne.lat
+                                ],
+                                [
+                                    bounds._sw.lng,
+                                    bounds._ne.lat
+                                ],
+                                [
+                                    bounds._sw.lng,
+                                    bounds._sw.lat
+                                ]
+                            ]
+                        ]
+                    }
+                }]
+            }
+
+            if (initLoad) {
+                addInsetLayer(boundsJson);
+                initLoad = false;
+            } else {
+                updateInsetLayer(boundsJson);
+            }
+
+        }
+
+function addInsetLayer(bounds) {
+    insetMap.addSource('boundsSource', {
+        'type': 'geojson',
+        'data': bounds
+    });
+
+    insetMap.addLayer({
+        'id': 'boundsLayer',
+        'type': 'fill',
+        'source': 'boundsSource', // reference the data source
+        'layout': {},
+        'paint': {
+            'fill-color': '#fff', // blue color fill
+            'fill-opacity': 0.2
+        }
+    });
+    // // Add a black outline around the polygon.
+    insetMap.addLayer({
+        'id': 'outlineLayer',
+        'type': 'line',
+        'source': 'boundsSource',
+        'layout': {},
+        'paint': {
+            'line-color': '#000',
+            'line-width': 1
+        }
+    });
+}
+
+function updateInsetLayer(bounds) {
+    insetMap.getSource('boundsSource').setData(bounds);
+}
+
+</script>
+
+</body>
+</html>
